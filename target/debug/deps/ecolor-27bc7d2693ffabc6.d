@@ -1,0 +1,12 @@
+/Users/niels/code/hopfield/target/debug/deps/libecolor-27bc7d2693ffabc6.rmeta: /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/lib.rs /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/color32.rs /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/hsva_gamma.rs /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/hsva.rs /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/rgba.rs /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/hex_color_runtime.rs
+
+/Users/niels/code/hopfield/target/debug/deps/libecolor-27bc7d2693ffabc6.rlib: /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/lib.rs /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/color32.rs /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/hsva_gamma.rs /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/hsva.rs /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/rgba.rs /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/hex_color_runtime.rs
+
+/Users/niels/code/hopfield/target/debug/deps/ecolor-27bc7d2693ffabc6.d: /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/lib.rs /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/color32.rs /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/hsva_gamma.rs /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/hsva.rs /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/rgba.rs /Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/hex_color_runtime.rs
+
+/Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/lib.rs:
+/Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/color32.rs:
+/Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/hsva_gamma.rs:
+/Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/hsva.rs:
+/Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/rgba.rs:
+/Users/niels/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ecolor-0.28.1/src/hex_color_runtime.rs:

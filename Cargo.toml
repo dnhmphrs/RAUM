@@ -1,0 +1,13 @@
+[package]
+name = "hopfield"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+egui = "0.28.1"
+eframe = { version = "0.28.1", features = ["default", "wgpu"] } # Use "default_fonts" feature if you want the default fonts
+env_logger = "0.11"
+rand = "0.8"
+egui_plot = "0.28.0"
+rusttype = "0.9"
+ab_glyph = "0.2" # Dependency for rusttype
