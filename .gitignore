@@ -6,4 +6,4 @@ docs/*
 
 # but keep any .tex or .pdf in docs/
 !docs/*.tex
-!docs/*.pdf
+# !docs/*.pdf
