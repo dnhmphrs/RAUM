@@ -67,46 +67,9 @@ The project currently has:
 - Comprehensive neural network library with visualization
 - Document generation for mathematical exploration
 
-## Project Structure
-
-```
-raum/
-├── src/
-│   ├── neural/                 # Neural network implementations
-│   │   ├── hopfield.rs         # Hopfield network implementation
-│   │   └── chip_firing.rs      # Chip firing graph implementation
-│   ├── graphics/               # Graphics and rendering
-│   │   ├── pipeline.rs         # WGPU pipeline abstractions
-│   │   └── renderer.rs         # Rendering utilities
-│   ├── ui/                     # UI components
-│   │   ├── app.rs              # Main application
-│   │   ├── windows/            # Application windows
-│   │   │   ├── hopfield.rs     # Hopfield network window
-│   │   │   └── chip_firing.rs  # Chip firing graph window
-│   │   └── widgets/            # Reusable UI widgets
-│   ├── ffi/                    # Foreign Function Interface
-│   │   ├── c.rs                # C bindings
-│   │   └── python.rs           # Python bindings
-│   ├── lib.rs                  # Library entry point
-│   └── main.rs                 # GUI application entry point
-└── examples/                   # Example applications
-```
-
-## Usage
-
-*Documentation coming soon*
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-*License information to be added*
-
 # Code Restructuring Plan
 
-## New Directory Structure
+## Project Structure
 
 ```
 raum/
@@ -129,6 +92,9 @@ raum/
 │   │   └── widgets/
 │   │       ├── mod.rs          # Common widget exports
 │   │       └── grid.rs         # Grid display widget (from existing UI code)
+│   ├── ffi/
+│   │   ├── c.rs                # C bindings
+│   │   └── python.rs           # Python bindin
 │   ├── lib.rs                  # Library entry point
 │   └── main.rs                 # GUI application entry point
 ```
@@ -137,7 +103,7 @@ raum/
 
 ### 1. Create Module Structure
 
-First, we'll create the necessary directory structure and module files.
+Create the necessary directory structure and module files.
 
 ### 2. Neural Network Module
 
