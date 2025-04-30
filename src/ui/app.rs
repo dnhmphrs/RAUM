@@ -48,11 +48,17 @@ impl RaumApp {
         
         // Add Hopfield Network window
         let hopfield_window = windows::hopfield::HopfieldWindow::new();
-        let window_name = hopfield_window.name().to_string();
-        windows.insert(window_name.clone(), Box::new(hopfield_window));
-        window_open_states.insert(window_name, false); // Closed by default
+        let window_name_hopfield = hopfield_window.name().to_string();
+        windows.insert(window_name_hopfield.clone(), Box::new(hopfield_window));
+        window_open_states.insert(window_name_hopfield, false); // Closed by default
         
-        // Future: Add Chip Firing Graph window
+        // Add Chip Firing Graph window
+        let chip_firing_window = windows::chip_firing::ChipFiringWindow::new();
+        let window_name_chip = chip_firing_window.name().to_string();
+        windows.insert(window_name_chip.clone(), Box::new(chip_firing_window));
+        window_open_states.insert(window_name_chip, false); // Closed by default
+        
+        // Future windows go here
         
         Self {
             windows,

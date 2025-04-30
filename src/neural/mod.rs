@@ -1,5 +1,5 @@
 pub mod hopfield;
-// Future: pub mod chip_firing;
+pub mod chip_firing;
 
 use std::error::Error;
 
