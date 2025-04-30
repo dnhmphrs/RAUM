@@ -1,2 +1,9 @@
 # Rust target directory
-target/ 
+target/*
+
+# ignore everything in docs/
+docs/*
+
+# but keep any .tex or .pdf in docs/
+!docs/*.tex
+!docs/*.pdf

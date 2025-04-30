@@ -25,16 +25,20 @@ impl fmt::Display for HopfieldError {
 impl Error for HopfieldError {}
 
 /// Represents a discrete-time Hopfield Network.
+///
+/// Stores the network weights and provides methods for training, state updates,
+/// energy calculation, and running the network dynamics.
 #[derive(Debug, Clone)]
 pub struct HopfieldNetwork {
     num_neurons: usize,
-    /// Weight matrix (num_neurons x num_neurons)
+    /// Weight matrix (W_ij) representing connection strengths.
+    /// Size: num_neurons x num_neurons. W_ii is always 0.
     weights: Vec<Vec<f64>>,
 }
 
 impl HopfieldNetwork {
     /// Creates a new Hopfield network with a specified number of neurons.
-    /// Initializes weights to zero.
+    /// Initializes weights W_ij to zero.
     ///
     /// # Arguments
     ///
@@ -49,12 +53,12 @@ impl HopfieldNetwork {
         }
     }
 
-    /// Returns the number of neurons in the network.
+    /// Returns the number of neurons (N) in the network.
     pub fn size(&self) -> usize {
         self.num_neurons
     }
 
-    /// Validates if a given vector represents a valid state (+1.0 or -1.0).
+    /// Validates if a given vector represents a valid bipolar state (+1.0 or -1.0).
     fn validate_state(state: &[f64], expected_len: usize) -> Result<(), HopfieldError> {
         if state.len() != expected_len {
             return Err(HopfieldError::DimensionMismatch(format!(
@@ -73,10 +77,13 @@ impl HopfieldNetwork {
         Ok(())
     }
 
-    /// Trains the network to store a set of patterns using the Hebbian rule.
-    /// W_ij = sum(pattern_k[i] * pattern_k[j]) for all patterns k (i != j)
-    /// W_ii is set to 0.
-    /// Replaces existing weights.
+    /// Trains the network using the Hebbian learning rule (outer product rule).
+    ///
+    /// Calculates the weight matrix W based on the provided patterns ξ:
+    /// W_ij = Σ_p (ξ_i^p * ξ_j^p) for i ≠ j
+    /// W_ii = 0
+    /// where p iterates over all provided patterns.
+    /// This method resets existing weights before training.
     pub fn train(&mut self, patterns: &[Vec<f64>]) -> Result<(), HopfieldError> {
         if patterns.is_empty() {
              println!("Warning: Training with an empty set of patterns.");
@@ -103,7 +110,11 @@ impl HopfieldNetwork {
         Ok(())
     }
 
-    /// Performs a single synchronous update step.
+    /// Performs a single synchronous update step for all neurons.
+    ///
+    /// Calculates the next state S(t+1) based on the current state S(t):
+    /// S_i(t+1) = sgn( Σ_j W_ij * S_j(t) )
+    /// where sgn(x) is +1 if x > 0, -1 if x < 0, and S_i(t) if x = 0.
     pub fn update_step(&self, current_state: &[f64]) -> Result<Vec<f64>, HopfieldError> {
         Self::validate_state(current_state, self.num_neurons)?;
         let mut next_state = vec![0.0; self.num_neurons];
@@ -123,8 +134,11 @@ impl HopfieldNetwork {
         Ok(next_state)
     }
 
-    /// Performs a single asynchronous update step on a randomly chosen neuron.
-    /// Modifies the input state directly.
+    /// Performs a single asynchronous update step on a randomly chosen neuron `k`.
+    /// Modifies the input state `state` directly.
+    ///
+    /// Calculates the activation for neuron `k`: h_k = Σ_j W_kj * S_j
+    /// Updates the state of neuron `k`: S_k(new) = sgn(h_k)
     fn update_step_async(&self, state: &mut [f64], rng: &mut impl Rng) -> Result<(), HopfieldError> {
         Self::validate_state(state, self.num_neurons)?;
 
@@ -150,12 +164,15 @@ impl HopfieldNetwork {
     }
 
     /// Runs the network dynamics asynchronously until convergence or max iterations.
-    /// An "iteration" consists of N single-neuron updates (N = num_neurons).
+    ///
+    /// An "iteration" consists of N single-neuron updates, where N = num_neurons.
+    /// Convergence occurs when the state vector remains unchanged after a full
+    /// sweep of N asynchronous updates.
     pub fn run_async(
         &self,
         initial_state: &[f64],
         max_iterations: usize,
-        rng: &mut impl Rng, // Need a mutable Rng
+        rng: &mut impl Rng,
     ) -> Result<(Vec<Vec<f64>>, usize), HopfieldError> {
         Self::validate_state(initial_state, self.num_neurons)?;
 
@@ -183,24 +200,9 @@ impl HopfieldNetwork {
         Ok((states_history, max_iterations))
     }
 
-    /// Runs the network dynamics until convergence or max iterations.
+    /// Runs the network dynamics synchronously until convergence or max iterations.
     ///
-    /// # Arguments
-    ///
-    /// * `initial_state` - The starting state vector.
-    /// * `max_iterations` - Max update steps.
-    ///
-    /// # Returns
-    ///
-    /// A tuple containing:
-    ///   - A `Vec` containing the sequence of states, starting with the initial state,
-    ///     up to the final state (either converged or at max_iterations).
-    ///   - The number of iterations performed (0 if it converged immediately).
-    ///
-    /// # Errors
-    ///
-    /// Returns `HopfieldError::DimensionMismatch` or `HopfieldError::InvalidStateValue` 
-    /// for an invalid initial state.
+    /// Convergence occurs when S(t+1) = S(t).
     pub fn run(
         &self,
         initial_state: &[f64],
@@ -228,8 +230,10 @@ impl HopfieldNetwork {
         Ok((states_history, max_iterations))
     }
 
-    /// Calculates the energy of a given state.
-    /// E = -0.5 * sum(i != j) w_ij * s_i * s_j
+    /// Calculates the Lyapunov energy function for a given state S.
+    ///
+    /// E = -0.5 * Σ_{i≠j} W_ij * S_i * S_j
+    /// Note: The sum implicitly excludes i=j because W_ii = 0.
     pub fn energy(&self, state: &[f64]) -> Result<f64, HopfieldError> {
         Self::validate_state(state, self.num_neurons)?;
 
@@ -245,184 +249,4 @@ impl HopfieldNetwork {
         }
         Ok(-0.5 * energy)
     }
-
-    /// Runs the network dynamics, printing states as ASCII art, until convergence or max iterations.
-    /// Assumes the number of neurons is a perfect square for printing.
-    ///
-    /// # Arguments
-    ///
-    /// * `initial_state` - The starting state vector.
-    /// * `max_iterations` - Max update steps.
-    ///
-    /// # Returns
-    ///
-    /// A tuple containing the final state vector and the number of iterations performed.
-    ///
-    /// # Errors
-    ///
-    /// Returns `HopfieldError` for invalid initial state or if `num_neurons` isn't a perfect square.
-    pub fn run_and_print_ascii(
-        &self,
-        initial_state: &[f64],
-        max_iterations: usize,
-    ) -> Result<(Vec<f64>, usize), HopfieldError> {
-        Self::validate_state(initial_state, self.num_neurons)?;
-
-        // Calculate grid dimensions, assuming a square grid
-        let side_f = (self.num_neurons as f64).sqrt();
-        if side_f.fract() != 0.0 {
-            return Err(HopfieldError::NotPerfectSquare(format!(
-                "Number of neurons ({}) is not a perfect square, cannot print as square grid.",
-                self.num_neurons
-            )));
-        }
-        let side = side_f as usize; // width and height
-
-        println!("--- Running Hopfield Network ---");
-        println!("Initial State:");
-        print_state_ascii(initial_state, side, side)?;
-        println!("------------------------------");
-
-        let mut current_state = initial_state.to_vec();
-        for i in 0..max_iterations {
-            let next_state = self.update_step(&current_state)?;
-
-            // Check for convergence *before* printing the next state as an iteration step
-            if current_state == next_state {
-                println!("Converged after {} iterations.", i);
-                println!("Final State:");
-                print_state_ascii(&current_state, side, side)?; // Print the stable state
-                println!("------------------------------");
-                return Ok((current_state, i)); // Iterations taken is i
-            }
-
-            // Print intermediate state
-            println!("Iteration {}:", i + 1);
-            print_state_ascii(&next_state, side, side)?;
-            println!("------------------------------");
-
-            current_state = next_state;
-        }
-
-        // Reached max iterations without converging
-        println!("Reached max iterations ({}).", max_iterations);
-        println!("Final State:");
-        print_state_ascii(&current_state, side, side)?;
-        println!("------------------------------");
-        Ok((current_state, max_iterations))
-    }
-}
-
-/// Helper function to print a state vector as ASCII art to the console.
-/// Assumes the state vector represents a grid row by row.
-/// Uses '#' for +1.0 and '.' for -1.0.
-///
-/// # Arguments
-///
-/// * `state` - The state vector slice (`&[f64]`).
-/// * `width` - The width of the grid.
-/// * `height` - The height of the grid.
-///
-/// # Errors
-///
-/// Returns `HopfieldError::DimensionMismatch` if `state.len()` != `width * height`.
-pub fn print_state_ascii(state: &[f64], width: usize, height: usize) -> Result<(), HopfieldError> {
-    if state.len() != width * height {
-        return Err(HopfieldError::DimensionMismatch(format!(
-            "State length {} does not match grid dimensions {}x{}",
-            state.len(), width, height
-        )));
-    }
-
-    println!("+{:-<width$}+", "-"); // Top border
-    for y in 0..height {
-        print!("|"); // Left border
-        for x in 0..width {
-            let index = y * width + x;
-            let char_to_print = match state.get(index) {
-                Some(1.0) => '#', // Or use '█' for block character
-                Some(-1.0) => '.', // Or use ' ' (space)
-                _ => '?', // Should not happen with validation
-            };
-            print!("{}", char_to_print);
-        }
-        println!("|"); // Right border
-    }
-     println!("+{:-<width$}+", "-"); // Bottom border
-    Ok(())
-}
-
-
-// --- Example Usage ---
-
-pub fn main() -> Result<(), HopfieldError> {
-    println!("Hopfield Network ASCII Example");
-
-    // Define grid dimensions (e.g., 5x5 for console visibility)
-    // To use 24x24, change these constants.
-    const WIDTH: usize = 5;
-    const HEIGHT: usize = 5;
-    const NUM_NEURONS: usize = WIDTH * HEIGHT; // 25
-
-    // Define patterns as 1D vectors (+1.0 for black/on, -1.0 for white/off)
-    // Example: A simple cross (+) pattern for 5x5
-    let pattern_cross = vec![
-        -1.0, -1.0,  1.0, -1.0, -1.0, // ..#..
-        -1.0, -1.0,  1.0, -1.0, -1.0, // ..#..
-         1.0,  1.0,  1.0,  1.0,  1.0, // #####
-        -1.0, -1.0,  1.0, -1.0, -1.0, // ..#..
-        -1.0, -1.0,  1.0, -1.0, -1.0, // ..#..
-    ];
-
-    // Example: A simple 'O' pattern for 5x5
-    let pattern_o = vec![
-        -1.0,  1.0,  1.0,  1.0, -1.0, // .###.
-         1.0, -1.0, -1.0, -1.0,  1.0, // #...#
-         1.0, -1.0, -1.0, -1.0,  1.0, // #...#
-         1.0, -1.0, -1.0, -1.0,  1.0, // #...#
-        -1.0,  1.0,  1.0,  1.0, -1.0, // .###.
-    ];
-
-    // You can add more patterns here (e.g., for a 24x24 grid)
-    // let pattern_large = vec![...; 24 * 24];
-
-    let patterns_to_store = vec![pattern_cross.clone(), pattern_o.clone()];
-
-    // Create and train the network
-    let mut network = HopfieldNetwork::new(NUM_NEURONS);
-    println!("Training network with {} neurons...", network.size());
-    network.train(&patterns_to_store)?;
-    println!("Training complete.");
-
-    // --- Test Recall ---
-    println!("\n--- Test 1: Recall from Noisy Cross Pattern ---");
-
-    // Create a noisy version of the cross pattern (flip some bits)
-    let mut noisy_cross = pattern_cross.clone();
-    noisy_cross[0] = 1.0;  // Flip top-left from . to #
-    noisy_cross[6] = 1.0;  // Flip second row, second element from . to #
-    noisy_cross[12] = -1.0; // Flip middle of cross from # to .
-
-    let max_iterations = 10;
-
-    // Run the network, printing states along the way
-    let (_final_state_cross, _iterations_cross) = network.run_and_print_ascii(&noisy_cross, max_iterations)?;
-
-    // Note: We don't explicitly compare _final_state_cross to pattern_cross here,
-    // as the focus is on visual inspection of the printed output.
-
-
-    println!("\n--- Test 2: Recall from Noisy O Pattern ---");
-    let mut noisy_o = pattern_o.clone();
-    noisy_o[7] = 1.0; // Flip inside top-left from . to #
-    noisy_o[16] = 1.0; // Flip inside middle-left from . to #
-
-     let (_final_state_o, _iterations_o) = network.run_and_print_ascii(&noisy_o, max_iterations)?;
-
-
-    println!("\n--- Test 3: Recall starting from a stored pattern (should stabilize immediately) ---");
-    let (_final_state_stable, _iterations_stable) = network.run_and_print_ascii(&pattern_o, max_iterations)?;
-
-
-    Ok(())
 }

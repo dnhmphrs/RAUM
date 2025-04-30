@@ -1,0 +1,61 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+
+\title{Hopfield Network}
+\author{Implementation Notes}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+This document outlines the mathematical formulae implemented in the Hopfield network library.
+
+\section{Definitions}
+Let $N$ be the number of neurons in the network.
+Let $S$ be the state vector of the network, $S = (S_1, S_2, \dots, S_N)$, where each $S_i \in \{-1, +1\}$ represents the state of neuron $i$.
+Let $W$ be the weight matrix, where $W_{ij}$ is the connection strength from neuron $j$ to neuron $i$. In this implementation, $W_{ii} = 0$.
+Let $\xi^p = (\xi_1^p, \xi_2^p, \dots, \xi_N^p)$ be the $p$-th pattern to be stored, where each $\xi_i^p \in \{-1, +1\}$.
+
+\section{Learning Rule (Hebbian)}
+The weight matrix $W$ is calculated based on the patterns $\xi^p$ to be stored using the Hebbian rule (specifically, the outer product rule):
+\[
+W_{ij} = \begin{cases} \sum_{p} \xi_i^p \xi_j^p & \text{if } i \neq j \\ 0 & \text{if } i = j \end{cases}
+\]
+where the sum is over all patterns $p$ provided during training.
+
+\section{Update Rules}
+
+\subsection{Synchronous Update}
+All neurons update their state simultaneously based on the state at the previous time step $t$. The state of neuron $i$ at time $t+1$ is determined by:
+\[
+S_i(t+1) = \text{sgn} \left( \sum_{j=1}^{N} W_{ij} S_j(t) \right)
+\]
+where the sign function is defined as:
+\[
+\text{sgn}(x) = \begin{cases} +1 & \text{if } x > 0 \\ -1 & \text{if } x < 0 \\ S_i(t) & \text{if } x = 0 \text{ (no change)} \end{cases}
+\]
+
+\subsection{Asynchronous Update}
+A single neuron $k$ is chosen (typically randomly) at each step. Its state is updated based on the current states of all other neurons:
+\[
+S_k(\text{new}) = \text{sgn} \left( \sum_{j=1}^{N} W_{kj} S_j(\text{current}) \right)
+\]
+The sign function definition is the same as for the synchronous update, using $S_k(\text{current})$ if the sum is zero.
+An \textit{iteration} or \textit{sweep} in the asynchronous mode consists of $N$ such single-neuron updates.
+
+\section{Energy Function (Lyapunov Function)}
+The energy of a given network state $S$ is defined as:
+\[
+E = -\frac{1}{2} \sum_{i=1}^{N} \sum_{j=1}^{N} W_{ij} S_i S_j
+\]
+Since $W_{ii} = 0$, this is equivalent to:
+\[
+E = -\frac{1}{2} \sum_{i \neq j} W_{ij} S_i S_j
+\]
+The network dynamics (both synchronous and asynchronous) tend to evolve the state $S$ towards configurations that minimize this energy function.
+
+\end{document} 
