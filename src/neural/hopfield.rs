@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt;
 use rand::Rng;
+use nalgebra::{DMatrix};
 
 use super::NeuralNetwork;
 
@@ -23,6 +24,13 @@ impl fmt::Display for HopfieldError {
 }
 
 impl Error for HopfieldError {}
+
+// Enum to select the training rule
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TrainingRule {
+    Hebbian,
+    PseudoInverse,
+}
 
 /// Represents a discrete-time Hopfield Network.
 ///
@@ -77,14 +85,13 @@ impl HopfieldNetwork {
         Ok(())
     }
 
-    /// Trains the network using the Hebbian learning rule (outer product rule).
-    ///
-    /// Calculates the weight matrix W based on the provided patterns ξ:
-    /// W_ij = Σ_p (ξ_i^p * ξ_j^p) for i ≠ j
+    /// Calculates the weight matrix W based on the provided patterns ξ using the
+    /// selected rule:
+    /// Hebbian: W_ij = Σ_p (ξ_i^p * ξ_j^p) for i ≠ j
+    /// PseudoInverse: W_ij = Σ_{α,β} ξ_i^α (C⁻¹)_{αβ} ξ_j^β where C is overlap matrix
     /// W_ii = 0
-    /// where p iterates over all provided patterns.
     /// This method resets existing weights before training.
-    pub fn train(&mut self, patterns: &[Vec<f64>]) -> Result<(), HopfieldError> {
+    pub fn train(&mut self, patterns: &[Vec<f64>], rule: TrainingRule) -> Result<(), HopfieldError> {
         if patterns.is_empty() {
              println!("Warning: Training with an empty set of patterns.");
              self.weights = vec![vec![0.0; self.num_neurons]; self.num_neurons];
@@ -97,25 +104,74 @@ impl HopfieldNetwork {
 
         self.weights = vec![vec![0.0; self.num_neurons]; self.num_neurons];
 
-        for pattern in patterns {
-            for i in 0..self.num_neurons {
-                for j in 0..self.num_neurons {
-                    if i != j {
-                        self.weights[i][j] += pattern[i] * pattern[j];
+        match rule {
+            TrainingRule::Hebbian => {
+                println!("Training using Hebbian rule...");
+                for pattern in patterns {
+                    for i in 0..self.num_neurons {
+                        for j in 0..self.num_neurons {
+                            if i != j {
+                                self.weights[i][j] += pattern[i] * pattern[j];
+                            }
+                        }
                     }
-                    // W_ii remains 0.0 from initialization
+                }
+            }
+            TrainingRule::PseudoInverse => {
+                println!("Training using PseudoInverse rule...");
+                let num_patterns = patterns.len();
+
+                // 1. Calculate the Covariance/Overlap Matrix C
+                let mut covariance_matrix = DMatrix::<f64>::zeros(num_patterns, num_patterns);
+                let n_f64 = self.num_neurons as f64;
+
+                for alpha in 0..num_patterns {
+                    for beta in alpha..num_patterns {
+                        let mut dot_product = 0.0;
+                        for i in 0..self.num_neurons {
+                            dot_product += patterns[alpha][i] * patterns[beta][i];
+                        }
+                        let overlap = dot_product / n_f64;
+                        covariance_matrix[(alpha, beta)] = overlap;
+                        if alpha != beta {
+                            covariance_matrix[(beta, alpha)] = overlap;
+                        }
+                    }
+                }
+
+                // 2. Calculate the inverse C⁻¹
+                if let Some(inv_covariance_matrix) = covariance_matrix.try_inverse() {
+                    // 3. Calculate weights W_ij = Σ_{α,β} ξ_i^α (C⁻¹)_{αβ} ξ_j^β
+                    for i in 0..self.num_neurons {
+                        for j in 0..self.num_neurons {
+                            if i == j { continue; } // W_ii = 0
+                            let mut weight_sum = 0.0;
+                            for alpha in 0..num_patterns {
+                                for beta in 0..num_patterns {
+                                    weight_sum += patterns[alpha][i] * inv_covariance_matrix[(alpha, beta)] * patterns[beta][j];
+                                }
+                            }
+                            self.weights[i][j] = weight_sum;
+                        }
+                    }
+                } else {
+                    // Handle non-invertible matrix
+                    return Err(HopfieldError::DimensionMismatch(
+                        "Covariance matrix is singular, cannot compute pseudo-inverse. Try Hebbian rule or different patterns.".to_string()
+                    ));
                 }
             }
         }
+
         Ok(())
     }
 
     /// Performs a single synchronous update step for all neurons.
     ///
     /// Calculates the next state S(t+1) based on the current state S(t):
-    /// S_i(t+1) = sgn( Σ_j W_ij * S_j(t) )
-    /// where sgn(x) is +1 if x > 0, -1 if x < 0, and S_i(t) if x = 0.
-    pub fn update_step(&self, current_state: &[f64]) -> Result<Vec<f64>, HopfieldError> {
+    /// S_i(t+1) = +1 with probability 1 / (1 + exp(-2 * β * Σ_j W_ij * S_j(t)))
+    /// S_i(t+1) = -1 otherwise.
+    pub fn update_step(&self, current_state: &[f64], beta: f64, rng: &mut impl Rng) -> Result<Vec<f64>, HopfieldError> {
         Self::validate_state(current_state, self.num_neurons)?;
         let mut next_state = vec![0.0; self.num_neurons];
         for i in 0..self.num_neurons {
@@ -123,12 +179,17 @@ impl HopfieldNetwork {
             for j in 0..self.num_neurons {
                 activation_sum += self.weights[i][j] * current_state[j];
             }
-            if activation_sum > 0.0 {
-                next_state[i] = 1.0;
-            } else if activation_sum < 0.0 {
-                next_state[i] = -1.0;
+            let scaled_activation = beta * activation_sum; // Apply beta scaling
+
+            // Calculate probability P(S_i = +1)
+            // Use sigmoid: 1 / (1 + exp(-2 * x)) where x = scaled_activation
+            let prob_plus_one = 1.0 / (1.0 + (-2.0 * scaled_activation).exp());
+
+            // Decide state based on probability
+            if rng.gen::<f64>() < prob_plus_one {
+                 next_state[i] = 1.0;
             } else {
-                next_state[i] = current_state[i]; // Keep previous state if sum is zero
+                 next_state[i] = -1.0;
             }
         }
         Ok(next_state)
@@ -138,8 +199,8 @@ impl HopfieldNetwork {
     /// Modifies the input state `state` directly.
     ///
     /// Calculates the activation for neuron `k`: h_k = Σ_j W_kj * S_j
-    /// Updates the state of neuron `k`: S_k(new) = sgn(h_k)
-    pub fn update_step_async(&self, state: &mut [f64], rng: &mut impl Rng) -> Result<(), HopfieldError> {
+    /// Updates the state of neuron `k` probabilistically based on β * h_k.
+    pub fn update_step_async(&self, state: &mut [f64], beta: f64, rng: &mut impl Rng) -> Result<(), HopfieldError> {
         Self::validate_state(state, self.num_neurons)?;
 
         let neuron_index = rng.gen_range(0..self.num_neurons);
@@ -150,16 +211,18 @@ impl HopfieldNetwork {
             activation_sum += self.weights[neuron_index][j] * state[j]; 
         }
 
-        let current_neuron_state = state[neuron_index];
-        let new_neuron_state = if activation_sum > 0.0 {
-            1.0
-        } else if activation_sum < 0.0 {
-            -1.0
-        } else {
-            current_neuron_state // Keep previous state if sum is zero
-        };
+        let scaled_activation = beta * activation_sum; // Apply beta scaling
 
-        state[neuron_index] = new_neuron_state;
+        // Calculate probability P(S_k = +1)
+        let prob_plus_one = 1.0 / (1.0 + (-2.0 * scaled_activation).exp());
+
+        // Decide state based on probability
+        if rng.gen::<f64>() < prob_plus_one {
+            state[neuron_index] = 1.0;
+        } else {
+            state[neuron_index] = -1.0;
+        }
+
         Ok(())
     }
 
@@ -172,6 +235,7 @@ impl HopfieldNetwork {
         &self,
         initial_state: &[f64],
         max_iterations: usize,
+        beta: f64, // Add beta parameter
         rng: &mut impl Rng,
     ) -> Result<(Vec<Vec<f64>>, usize), HopfieldError> {
         Self::validate_state(initial_state, self.num_neurons)?;
@@ -179,21 +243,18 @@ impl HopfieldNetwork {
         let mut states_history: Vec<Vec<f64>> = vec![initial_state.to_vec()];
         let mut current_state = initial_state.to_vec();
 
-        for i in 0..max_iterations {
-            let state_before_sweep = current_state.clone();
+        for _i in 0..max_iterations {
+            let _state_before_sweep = current_state.clone();
 
             // Perform N single-neuron updates for one full sweep/iteration
             for _ in 0..self.num_neurons {
-                 self.update_step_async(&mut current_state, rng)?;
+                 self.update_step_async(&mut current_state, beta, rng)?; // Pass beta
             }
 
             // Store state after the full sweep
             states_history.push(current_state.clone());
 
-            // Check for convergence (state hasn't changed over a full sweep)
-            if current_state == state_before_sweep {
-                return Ok((states_history, i)); // Converged after i full sweeps
-            }
+            // Removed early convergence check for stochastic simulation
         }
 
         // Reached max iterations
@@ -201,12 +262,13 @@ impl HopfieldNetwork {
     }
 
     /// Runs the network dynamics synchronously until convergence or max iterations.
-    ///
-    /// Convergence occurs when S(t+1) = S(t).
+    /// The simulation runs for max_iterations.
     pub fn run(
         &self,
         initial_state: &[f64],
         max_iterations: usize,
+        beta: f64,
+        rng: &mut impl Rng, // Add Rng for stochastic updates
     ) -> Result<(Vec<Vec<f64>>, usize), HopfieldError> {
         // Validate the initial state first
         Self::validate_state(initial_state, self.num_neurons)?;
@@ -214,14 +276,11 @@ impl HopfieldNetwork {
         let mut states_history: Vec<Vec<f64>> = vec![initial_state.to_vec()];
         let mut current_state = initial_state.to_vec();
 
-        for i in 0..max_iterations {
-            let next_state = self.update_step(&current_state)?;
+        for _i in 0..max_iterations {
+            let next_state = self.update_step(&current_state, beta, rng)?; // Pass beta and rng
             states_history.push(next_state.clone()); // Store the new state
 
-            if current_state == next_state {
-                // Converged
-                return Ok((states_history, i)); // Return history and iterations count
-            }
+            // Removed early convergence check for stochastic simulation
 
             current_state = next_state;
         }
@@ -257,13 +316,19 @@ impl NeuralNetwork for HopfieldNetwork {
     type Output = Vec<Vec<f64>>;
     type Error = HopfieldError;
     
+    // Note: The trait doesn't inherently support beta or rng.
+    // We'll call the run method directly in the UI where beta/rng is known.
+    // This forward implementation uses a default beta (e.g., 100.0 for near deterministic) 
+    // and creates its own rng instance.
     fn forward(&self, input: &Self::Input) -> Result<Self::Output, Self::Error> {
-        let (states, _) = self.run(input, 100)?;
+        let mut rng = rand::thread_rng();
+        let (states, _) = self.run(input, 100, 100.0, &mut rng)?; // High beta, internal rng
         Ok(states)
     }
     
     fn train(&mut self, data: &[Self::Input]) -> Result<(), Self::Error> {
-        self.train(data)
+        // Default to PseudoInverse if called via trait?
+        self.train(data, TrainingRule::PseudoInverse)
     }
     
     fn size(&self) -> usize {

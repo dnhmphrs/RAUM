@@ -12,3 +12,4 @@ egui_plot = "0.28.0"
 rusttype = "0.9"
 ab_glyph = "0.2" # Dependency for rusttype
 image = { version = "0.25", default-features = false, features = ["png"] } # For loading icon
+nalgebra = "0.33.2"

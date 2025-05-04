@@ -4,7 +4,7 @@ use rand::rngs::ThreadRng;
 use std::collections::HashSet;
 use rusttype::{point, Font, Scale};
 
-use crate::neural::hopfield::{HopfieldNetwork};
+use crate::neural::hopfield::{HopfieldNetwork, TrainingRule};
 use crate::ui::widgets::grid::{draw_grid, apply_noise};
 use crate::ui::windows::Window;
 
@@ -19,9 +19,9 @@ pub struct HopfieldWindow {
     network: Option<HopfieldNetwork>,
     
     // Pattern data
-    all_generated_patterns: Vec<(char, Vec<f64>)>,
-    patterns: Vec<Vec<f64>>,
-    trained_chars: Vec<char>,
+    all_generated_patterns: Vec<(char, Vec<f64>)>, // (Char, Original Pattern from font)
+    patterns: Vec<Vec<f64>>, // Currently ACTIVE patterns for training/input selection
+    trained_chars: Vec<char>, // Chars corresponding to `patterns`
     
     // UI State 
     current_grid_size: usize,
@@ -40,6 +40,10 @@ pub struct HopfieldWindow {
     // Configuration
     error_message: Option<String>,
     max_iterations: usize,
+    beta: f64, 
+    pattern_overlap: Option<Vec<Vec<f64>>>, 
+    training_rule: TrainingRule,
+    overlap_histogram: Option<Vec<egui_plot::Bar>>,
     rng: ThreadRng,
     update_mode: UpdateMode,
 }
@@ -63,7 +67,7 @@ impl HopfieldWindow {
         Self {
             network: None,
             all_generated_patterns,
-            patterns, 
+            patterns: patterns.clone(),
             trained_chars,
             current_grid_size: initial_grid_size,
             available_chars,
@@ -77,6 +81,10 @@ impl HopfieldWindow {
             iterations: None,
             error_message: None,
             max_iterations: 100,
+            beta: 1.0,
+            pattern_overlap: Self::calculate_overlap_matrix(&patterns),
+            training_rule: TrainingRule::PseudoInverse,
+            overlap_histogram: Self::calculate_overlap_histogram(&Self::calculate_overlap_matrix(&patterns)),
             rng: rand::thread_rng(),
             update_mode: UpdateMode::Synchronous,
         }
@@ -251,6 +259,8 @@ impl HopfieldWindow {
         
         // Reset network and output
         self.network = None;
+        self.pattern_overlap = Self::calculate_overlap_matrix(&self.patterns);
+        self.overlap_histogram = Self::calculate_overlap_histogram(&self.pattern_overlap);
         self.output_states = None;
         self.energy_history = None;
         self.iterations = None;
@@ -265,33 +275,6 @@ impl HopfieldWindow {
         
         // Update input state
         self.update_input_state();
-    }
-    
-    // Train the network
-    fn train_network(&mut self) {
-        if self.patterns.is_empty() {
-            self.error_message = Some("Cannot train: No patterns selected.".to_string());
-            return;
-        }
-        
-        self.error_message = None;
-        self.output_states = None;
-        self.energy_history = None;
-        self.iterations = None;
-        self.display_iteration = None;
-        
-        // Create network with current dynamic size
-        let mut net = HopfieldNetwork::new(self.current_grid_size * self.current_grid_size);
-        match net.train(&self.patterns) {
-            Ok(_) => {
-                self.network = Some(net);
-                println!("Network trained successfully on {} patterns.", self.patterns.len());
-            }
-            Err(e) => {
-                self.network = None;
-                self.error_message = Some(format!("Training Error: {}", e));
-            }
-        }
     }
     
     // Run the network
@@ -315,10 +298,10 @@ impl HopfieldWindow {
             // Call appropriate run method based on mode
             let run_result = match self.update_mode {
                 UpdateMode::Synchronous => {
-                    net.run(&self.input_state, self.max_iterations)
+                    net.run(&self.input_state, self.max_iterations, self.beta, &mut self.rng)
                 }
                 UpdateMode::Asynchronous => {
-                    net.run_async(&self.input_state, self.max_iterations, &mut self.rng)
+                    net.run_async(&self.input_state, self.max_iterations, self.beta, &mut self.rng)
                 }
             };
 
@@ -362,6 +345,75 @@ impl HopfieldWindow {
                 }
             }
         }
+    }
+
+    // Helper function to calculate histogram data for off-diagonal overlaps
+    fn calculate_overlap_histogram(overlap_matrix: &Option<Vec<Vec<f64>>>) -> Option<Vec<egui_plot::Bar>> {
+        let matrix = overlap_matrix.as_ref()?; // Return None if overlap_matrix is None
+
+        if matrix.is_empty() {
+            return None;
+        }
+
+        let num_patterns = matrix.len();
+        let mut off_diagonal_overlaps = Vec::new();
+
+        for i in 0..num_patterns {
+            for j in (i + 1)..num_patterns { // Only upper triangle (excluding diagonal)
+                // We care about the magnitude of correlation
+                off_diagonal_overlaps.push(matrix[i][j].abs()); 
+            }
+        }
+
+        if off_diagonal_overlaps.is_empty() {
+            return Some(Vec::new()); // No off-diagonal elements (e.g., only 1 pattern)
+        }
+
+        // Define histogram bins (e.g., 10 bins from 0.0 to 1.0)
+        let num_bins = 10;
+        let bin_width = 1.0 / num_bins as f64;
+        let mut bins = vec![0; num_bins];
+
+        for &overlap in &off_diagonal_overlaps {
+            let bin_index = (overlap / bin_width).floor() as usize;
+            // Clamp index to handle overlap == 1.0 case
+            let clamped_index = bin_index.min(num_bins - 1);
+            bins[clamped_index] += 1;
+        }
+
+        // Create egui_plot Bars
+        let bars: Vec<egui_plot::Bar> = bins.into_iter().enumerate().map(|(index, count)| {
+            let x = (index as f64 + 0.5) * bin_width; // Center of the bin
+            egui_plot::Bar::new(x, count as f64).width(bin_width * 0.9) // Make bars slightly thinner than bin
+        }).collect();
+
+        Some(bars)
+    }
+
+    // Helper function to calculate the overlap matrix between patterns
+    fn calculate_overlap_matrix(patterns: &[Vec<f64>]) -> Option<Vec<Vec<f64>>> {
+        if patterns.is_empty() || patterns[0].is_empty() {
+            return None;
+        }
+
+        let num_patterns = patterns.len();
+        let num_neurons = patterns[0].len() as f64;
+        let mut overlap_matrix = vec![vec![0.0; num_patterns]; num_patterns];
+
+        for p in 0..num_patterns {
+            for q in p..num_patterns { // Calculate only upper triangle + diagonal
+                let mut dot_product = 0.0;
+                for i in 0..patterns[p].len() {
+                    dot_product += patterns[p][i] * patterns[q][i];
+                }
+                let overlap = dot_product / num_neurons;
+                overlap_matrix[p][q] = overlap;
+                if p != q { // Mirror to lower triangle
+                    overlap_matrix[q][p] = overlap;
+                }
+            }
+        }
+        Some(overlap_matrix)
     }
 }
 
@@ -435,6 +487,8 @@ impl Window for HopfieldWindow {
             
             // Reset network and output
             self.network = None;
+            self.pattern_overlap = Self::calculate_overlap_matrix(&self.patterns);
+            self.overlap_histogram = Self::calculate_overlap_histogram(&self.pattern_overlap);
             self.output_states = None;
             self.energy_history = None;
             self.iterations = None;
@@ -453,9 +507,46 @@ impl Window for HopfieldWindow {
 
         ui.separator();
 
+        // --- Training Rule Selection ---
+        ui.label("Training Rule:");
+        ui.horizontal(|ui| {
+            let changed = ui.radio_value(&mut self.training_rule, TrainingRule::Hebbian, "Hebbian").changed();
+            let changed = changed || ui.radio_value(&mut self.training_rule, TrainingRule::PseudoInverse, "Pseudo-Inverse").changed();
+            if changed {
+                self.network = None; // Require retraining if rule changes
+                println!("Training rule changed to {:?}. Retrain network.", self.training_rule);
+            }
+        });
+
+        ui.separator();
+
         // Train Button
         if ui.button("Train Network").clicked() {
-            self.train_network();
+            // Logic previously in train_network method
+            if self.patterns.is_empty() {
+                self.error_message = Some("Cannot train: No patterns selected.".to_string());
+            } else {
+                self.error_message = None;
+                self.output_states = None;
+                self.energy_history = None;
+                self.iterations = None;
+                self.display_iteration = None;
+
+                // Create network first
+                let mut net = HopfieldNetwork::new(self.current_grid_size * self.current_grid_size); 
+
+                // Train using the selected rule
+                match net.train(&self.patterns, self.training_rule) { 
+                    Ok(_) => {
+                        self.network = Some(net);
+                        println!("Network trained successfully on {} patterns.", self.patterns.len());
+                    }
+                    Err(e) => {
+                        self.network = None;
+                        self.error_message = Some(format!("Training Error: {}", e));
+                    }
+                }
+            }
         }
 
         ui.separator();
@@ -488,6 +579,7 @@ impl Window for HopfieldWindow {
                             }
                             
                             // Column 2: Preview Grid
+                            // Use self.patterns which holds the currently active set (original or ortho)
                             if let Some(pattern) = self.patterns.get(subset_idx) {
                                 if pattern.len() == self.current_grid_size * self.current_grid_size {
                                     draw_grid(ui, pattern, self.current_grid_size, self.current_grid_size, 2.0);
@@ -508,6 +600,8 @@ impl Window for HopfieldWindow {
                     });
             });
 
+        ui.separator();
+
         // --- Bottom Controls ---
         ui.separator();
         
@@ -526,6 +620,12 @@ impl Window for HopfieldWindow {
             ui.radio_value(&mut self.update_mode, UpdateMode::Synchronous, "Synchronous");
             ui.radio_value(&mut self.update_mode, UpdateMode::Asynchronous, "Asynchronous");
         });
+        
+        ui.separator();
+        
+        // Beta Control
+        ui.label("Update Rule Beta (Temperature Inverse):");
+        ui.add(egui::DragValue::new(&mut self.beta).speed(0.01).range(0.01..=10.0));
         
         ui.separator();
         
@@ -552,6 +652,75 @@ impl Window for HopfieldWindow {
                 ui.label("Update Rule: Sᵢ(t+1) = sgn( Σⱼ Wᵢⱼ Sⱼ(t) )");
                 ui.label("Learning Rule: Wᵢⱼ = Σₚ ξᵢᵖ ξⱼᵖ  (i ≠ j, Wᵢᵢ = 0)");
                 ui.label("Energy: E = -½ Σᵢ Σⱼ Wᵢⱼ Sᵢ Sⱼ (i ≠ j)");
+                ui.separator();
+                ui.label("Pattern Overlap Matrix (m = 1/N * ξᵖ⋅ξ۹):");
+
+                // Display Overlap Matrix
+                if let Some(matrix) = &self.pattern_overlap {
+                    if !self.trained_chars.is_empty() && !matrix.is_empty() {
+                        egui::Grid::new("overlap_matrix_grid")
+                            .num_columns(self.trained_chars.len() + 1)
+                            .min_col_width(30.0)
+                            .spacing([5.0, 5.0])
+                            .show(ui, |ui| {
+                                // Header Row (Characters)
+                                ui.label(""); // Top-left corner
+                                for &char_code in &self.trained_chars {
+                                    ui.label(char_code.to_string()).rect.width();
+                                }
+                                ui.end_row();
+
+                                // Matrix Rows
+                                for (p, &char_code) in self.trained_chars.iter().enumerate() {
+                                    ui.label(char_code.to_string()); // Row Header
+                                    for q in 0..self.trained_chars.len() {
+                                        let overlap = matrix[p][q];
+                                        // Color based on overlap value (closer to +/-1 is less ideal)
+                                        let abs_overlap = overlap.abs();
+                                        let color = if p == q { // Diagonal
+                                            egui::Color32::WHITE
+                                        } else if abs_overlap > 0.7 {
+                                            egui::Color32::from_rgb(255, 100, 100) // Reddish for high overlap
+                                        } else if abs_overlap > 0.3 {
+                                            egui::Color32::from_rgb(255, 200, 100) // Orange/Yellow for medium
+                                        } else {
+                                            egui::Color32::from_rgb(100, 255, 100) // Greenish for low
+                                        };
+                                        ui.colored_label(color, format!("{:.2}", overlap));
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                    } else {
+                        ui.label("(No patterns selected for overlap calculation)");
+                    }
+                } else {
+                    ui.label("(Overlap not calculated)");
+                }
+
+                ui.separator();
+                ui.label("Histogram of Off-Diagonal Overlap Magnitudes (|m_pq|, p != q):");
+
+                // Display Overlap Histogram
+                if let Some(histogram_bars) = &self.overlap_histogram {
+                    if !histogram_bars.is_empty() {
+                        let chart = egui_plot::BarChart::new(histogram_bars.clone()) 
+                            .color(egui::Color32::LIGHT_BLUE)
+                            .name("Overlap Distribution");
+
+                        egui_plot::Plot::new("overlap_histogram_plot")
+                            .legend(egui_plot::Legend::default())
+                            .height(100.0) // Adjust height as needed
+                            .show_axes([true, true])
+                            .show(ui, |plot_ui| {
+                                plot_ui.bar_chart(chart);
+                            });
+                    } else {
+                        ui.label("(Not enough patterns for histogram)");
+                    }
+                } else {
+                    ui.label("(Histogram not calculated)");
+                }
             });
             
         // Display Error Messages
