@@ -9,6 +9,12 @@ use crate::ui::widgets::grid::{draw_grid, apply_noise};
 use crate::ui::windows::Window;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
+enum GraphType {
+    FullyConnected,
+    ErdosRenyi,
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum UpdateMode {
     Synchronous,
     Asynchronous,
@@ -44,6 +50,8 @@ pub struct HopfieldWindow {
     pattern_overlap: Option<Vec<Vec<f64>>>, 
     training_rule: TrainingRule,
     overlap_histogram: Option<Vec<egui_plot::Bar>>,
+    graph_type: GraphType,
+    er_connectivity: f64,
     rng: ThreadRng,
     update_mode: UpdateMode,
 }
@@ -85,6 +93,8 @@ impl HopfieldWindow {
             pattern_overlap: Self::calculate_overlap_matrix(&patterns),
             training_rule: TrainingRule::PseudoInverse,
             overlap_histogram: Self::calculate_overlap_histogram(&Self::calculate_overlap_matrix(&patterns)),
+            graph_type: GraphType::FullyConnected,
+            er_connectivity: 1.0,
             rng: rand::thread_rng(),
             update_mode: UpdateMode::Synchronous,
         }
@@ -520,6 +530,31 @@ impl Window for HopfieldWindow {
 
         ui.separator();
 
+        // --- Graph Topology Selection ---
+        ui.label("Graph Topology:");
+        let mut topology_changed = false;
+        ui.horizontal(|ui| {
+            topology_changed |= ui.radio_value(&mut self.graph_type, GraphType::FullyConnected, "Fully Connected").changed();
+            topology_changed |= ui.radio_value(&mut self.graph_type, GraphType::ErdosRenyi, "Erdős-Rényi").changed();
+        });
+
+        // Only show connectivity slider if Erdős-Rényi is selected
+        if self.graph_type == GraphType::ErdosRenyi {
+            ui.add_space(5.0);
+            ui.label("ER Connectivity (p):");
+            let er_slider = ui.add(egui::Slider::new(&mut self.er_connectivity, 0.0..=1.0).text("Probability"));
+            if er_slider.changed() {
+                topology_changed = true;
+            }
+        }
+
+        if topology_changed {
+            self.network = None; // Require retraining if topology settings change
+            println!("Graph topology settings changed. Retrain network.");
+        }
+
+        ui.separator();
+
         // Train Button
         if ui.button("Train Network").clicked() {
             // Logic previously in train_network method
@@ -538,6 +573,10 @@ impl Window for HopfieldWindow {
                 // Train using the selected rule
                 match net.train(&self.patterns, self.training_rule) { 
                     Ok(_) => {
+                        // Apply topology modification if necessary
+                        if self.graph_type == GraphType::ErdosRenyi {
+                            net.apply_erdos_renyi_topology(self.er_connectivity, &mut self.rng);
+                        }
                         self.network = Some(net);
                         println!("Network trained successfully on {} patterns.", self.patterns.len());
                     }

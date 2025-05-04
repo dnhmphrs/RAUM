@@ -289,6 +289,34 @@ impl HopfieldNetwork {
         Ok((states_history, max_iterations))
     }
 
+    /// Applies an Erdős-Rényi graph topology to the weight matrix.
+    /// Each potential connection (i, j) where i != j is kept with probability `p`,
+    /// otherwise W_ij and W_ji are set to 0.
+    ///
+    /// # Arguments
+    /// * `p` - The probability of keeping a connection (0.0 <= p <= 1.0).
+    /// * `rng` - A random number generator.
+    pub fn apply_erdos_renyi_topology(&mut self, p: f64, rng: &mut impl Rng) {
+        if !(0.0..=1.0).contains(&p) {
+            eprintln!("Warning: Erdős-Rényi connectivity p must be between 0.0 and 1.0. Got {}. Skipping pruning.", p);
+            return;
+        }
+        println!("Applying Erdős-Rényi topology with p = {}", p);
+
+        // Iterate through the upper triangle of the matrix (excluding diagonal)
+        for i in 0..self.num_neurons {
+            for j in (i + 1)..self.num_neurons {
+                // Decide whether to keep the connection (i, j)
+                if rng.gen::<f64>() > p { 
+                    // Prune the connection
+                    self.weights[i][j] = 0.0;
+                    self.weights[j][i] = 0.0; // Ensure symmetry
+                }
+                // If rng.gen::<f64>() <= p, the connection remains as calculated by train()
+            }
+        }
+    }
+
     /// Calculates the Lyapunov energy function for a given state S.
     ///
     /// E = -0.5 * Σ_{i≠j} W_ij * S_i * S_j
