@@ -151,7 +151,8 @@ impl HopfieldNetwork {
                                     weight_sum += patterns[alpha][i] * inv_covariance_matrix[(alpha, beta)] * patterns[beta][j];
                                 }
                             }
-                            self.weights[i][j] = weight_sum;
+                            let norm = 1.0 / (self.num_neurons as f64);
+                            self.weights[i][j] = norm * weight_sum;
                         }
                     }
                 } else {
@@ -169,7 +170,7 @@ impl HopfieldNetwork {
     /// Performs a single synchronous update step for all neurons.
     ///
     /// Calculates the next state S(t+1) based on the current state S(t):
-    /// S_i(t+1) = +1 with probability 1 / (1 + exp(-2 * β * Σ_j W_ij * S_j(t)))
+    /// S_i(t+1) = +1 with probability 1 / (1 + exp(-2 * β * (1/N) * Σ_j W_ij * S_j(t)))
     /// S_i(t+1) = -1 otherwise.
     pub fn update_step(&self, current_state: &[f64], beta: f64, rng: &mut impl Rng) -> Result<Vec<f64>, HopfieldError> {
         Self::validate_state(current_state, self.num_neurons)?;
@@ -179,7 +180,8 @@ impl HopfieldNetwork {
             for j in 0..self.num_neurons {
                 activation_sum += self.weights[i][j] * current_state[j];
             }
-            let scaled_activation = beta * activation_sum; // Apply beta scaling
+            let field = activation_sum / (self.num_neurons as f64);
+            let scaled_activation = beta * field; 
 
             // Calculate probability P(S_i = +1)
             // Use sigmoid: 1 / (1 + exp(-2 * x)) where x = scaled_activation
@@ -198,8 +200,9 @@ impl HopfieldNetwork {
     /// Performs a single asynchronous update step on a randomly chosen neuron `k`.
     /// Modifies the input state `state` directly.
     ///
-    /// Calculates the activation for neuron `k`: h_k = Σ_j W_kj * S_j
-    /// Updates the state of neuron `k` probabilistically based on β * h_k.
+    /// Calculates the activation for neuron `k`: h_k = (1/N) * Σ_{j} W_{kj} * S_j
+    /// Updates the state of neuron `k` probabilistically with
+    ///    P(S_k = +1) = 1 / [1 + exp(-2 * β * h_k)].
     pub fn update_step_async(&self, state: &mut [f64], beta: f64, rng: &mut impl Rng) -> Result<(), HopfieldError> {
         Self::validate_state(state, self.num_neurons)?;
 
@@ -319,7 +322,7 @@ impl HopfieldNetwork {
 
     /// Calculates the Lyapunov energy function for a given state S.
     ///
-    /// E = -0.5 * Σ_{i≠j} W_ij * S_i * S_j
+    /// E = -1/N * Σ_{i≠j} W_ij * S_i * S_j
     /// Note: The sum implicitly excludes i=j because W_ii = 0.
     pub fn energy(&self, state: &[f64]) -> Result<f64, HopfieldError> {
         Self::validate_state(state, self.num_neurons)?;
@@ -334,7 +337,8 @@ impl HopfieldNetwork {
                  }
             }
         }
-        Ok(-0.5 * energy)
+        let norm = 1.0 / (self.num_neurons as f64);
+        Ok(-norm * energy)
     }
 }
 

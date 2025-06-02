@@ -690,7 +690,7 @@ impl Window for HopfieldWindow {
                 ui.separator();
                 ui.label("Update Rule: Sᵢ(t+1) = sgn( Σⱼ Wᵢⱼ Sⱼ(t) )");
                 ui.label("Learning Rule: Wᵢⱼ = Σₚ ξᵢᵖ ξⱼᵖ  (i ≠ j, Wᵢᵢ = 0)");
-                ui.label("Energy: E = -½ Σᵢ Σⱼ Wᵢⱼ Sᵢ Sⱼ (i ≠ j)");
+                ui.label("Energy: E = -1/N Σᵢ Σⱼ Wᵢⱼ Sᵢ Sⱼ (i ≠ j)");
                 ui.separator();
                 ui.label("Pattern Overlap Matrix (m = 1/N * ξᵖ⋅ξ۹):");
 
