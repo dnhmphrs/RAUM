@@ -1,0 +1,256 @@
+\documentclass{article}
+\usepackage{amsmath, amssymb, amsfonts}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+
+\title{Hopfield Network\\Implementation Notes}
+\author{ }
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+These notes summarize the mathematical conventions used in our Hopfield‐network implementation.  We start by defining notation, then describe how to build (train) the network, how it updates (deterministically or stochastically), and how we measure overlaps and energy.  Finally, we cover the pseudo‐inverse learning rule for correlated patterns.
+
+\section{Definitions and Notation}
+\begin{itemize}
+    \item $N$ \quad\textit{Number of neurons} in the network.
+    \item $\displaystyle S = (S_1, S_2, \dots, S_N)$ \quad\textit{State vector}, where each $S_i \in \{ -1, +1 \}$.
+    \item $\displaystyle W = [\,W_{ij}\,]$ \quad\textit{Symmetric weight matrix}, with $W_{ij} = W_{ji}$ and $W_{ii} = 0$ for all $i$.
+    \item $\displaystyle \xi^p = (\xi_1^p, \xi_2^p, \dots, \xi_N^p)$ \quad\textit{$p$-th pattern to store}, each $\xi_i^p \in \{-1,+1\}$.  We assume each pattern is roughly zero‐mean (balanced).
+\end{itemize}
+
+\section{Learning Rules}
+During training, we set $W$ so that the chosen patterns become (approximate) attractors of the network dynamics.  Two common rules are:
+
+\subsection{Hebbian (Outer‐Product) Rule (removed in this implementation)}
+\[
+W_{ij}
+\;=\;
+\begin{cases}
+\displaystyle
+\sum_{p=1}^{P} \,\xi_i^p\,\xi_j^p, 
+& i \neq j,\\[1em]
+0, 
+& i = j.
+\end{cases}
+\]
+In practice, we do \emph{not} use this rule here; it is listed for reference only.  Instead, we switch to the pseudo‐inverse rule when storing correlated patterns (see Section~\ref{sec:pseudoinverse}).
+
+\subsection{Pseudo‐Inverse Rule}
+\label{sec:pseudoinverse}
+When stored patterns may be correlated, the pseudo‐inverse rule ensures each pattern is a fixed point (assuming $M$ is invertible).  First, define the \emph{overlap matrix} $M \in \mathbb{R}^{P\times P}$ by
+\[
+M_{pq}
+\;=\;
+\frac{1}{N} \sum_{i=1}^{N} \xi_i^p \,\xi_i^q,\quad
+p,q = 1,\dots,P.
+\]
+Assuming $\bar{\xi}^p \approx 0$, so that $M$ captures the (zero‐mean) covariance, the weight matrix is
+\[
+W_{ij}
+\;=\;
+\begin{cases}
+\displaystyle
+\frac{1}{N}\sum_{p=1}^{P}\sum_{q=1}^{P} \;\xi_i^p\,(M^{-1})_{pq}\,\xi_j^q, 
+& i \neq j,\\[1em]
+0, 
+& i = j.
+\end{cases}
+\]
+Because $W_{ij} = W_{ji}$ by construction, the energy function remains well‐defined.  If $M$ is singular (e.g.\ due to duplicate or linearly dependent patterns), one must either drop redundant patterns, add a small regularizer ($M + \varepsilon I$), or use a Moore–Penrose pseudo‐inverse.
+
+\section{Network Topology (Erdős–Rényi)}
+By default, a Hopfield network is fully connected ($W_{ij}$ potentially nonzero for all $i \neq j$).  To introduce sparsity, we prune according to an Erdős–Rényi random graph $G(N,p)$:
+\begin{enumerate}
+    \item After computing $W_{ij}$ (via Hebbian or pseudo‐inverse), iterate over each unordered pair $(i,j)$ with $i<j$.
+    \item With probability $1-p$, set $W_{ij} = W_{ji} = 0$; otherwise keep $W_{ij}$ and $W_{ji}$ as computed.
+    \item Always keep $W_{ii} = 0$ for all $i$.
+\end{enumerate}
+Here $p\in[0,1]$ controls sparsity:
+\begin{itemize}
+    \item $p=1$: Fully connected ($G(N,1)$).
+    \item $p=0$: No edges ($G(N,0)$).
+    \item $0<p<1$: A sparse graph with \emph{expected} number of undirected edges 
+    \[
+    p \;\times\; \frac{N(N-1)}{2}.
+    \]
+\end{itemize}
+A sparse topology reduces capacity but can approximate biological networks or speed up simulation.
+
+\section{Deterministic Update Rules}
+
+\subsection{Synchronous Update}
+All neurons update at once using the state at time $t$.  Define the local field (pre‐activation) for neuron $i$:
+\[
+h_i(t)
+\;=\;
+\sum_{j=1}^{N} W_{ij}\,S_j(t).
+\]
+Then
+\[
+S_i(t+1)
+\;=\;
+\operatorname{sgn}\bigl(h_i(t)\bigr),\quad
+\text{where }
+\operatorname{sgn}(x)
+=
+\begin{cases}
++1, & x > 0,\\
+-1, & x < 0,\\
+S_i(t), & x = 0\ (\text{no change}).
+\end{cases}
+\]
+
+\subsection{Asynchronous (Glauber) Update}
+Pick one neuron $k$ at random (uniformly from $\{1,\dots,N\}$).  Compute its field:
+\[
+h_k \;=\; \sum_{j=1}^{N} W_{kj}\,S_j(\text{current}).
+\]
+Then update
+\[
+S_k(\text{new})
+\;=\;
+\operatorname{sgn}\bigl(h_k\bigr),
+\]
+with the same tie‐breaking rule if $h_k = 0$.  A \emph{sweep} or \emph{iteration} consists of $N$ such single‐neuron updates (allowing each neuron, on average, one update).
+
+\section{Energy Function (Lyapunov Function)}
+For a symmetric weight matrix $W$, the energy of state $S$ is
+\[
+E(S)
+\;=\;
+-\frac{1}{N}\sum_{i<j} W_{ij}\,S_i\,S_j.
+\]
+Equivalently, because $W_{ii}=0$ and $W_{ij}=W_{ji}$,
+\[
+E(S)
+\;=\;
+-\frac{1}{2N}\sum_{i\neq j} W_{ij}\,S_i\,S_j.
+\]
+Under deterministic (asynchronous) updates, $E(S)$ never increases:
+each single‐spin flip either lowers $E$ or leaves it unchanged (if $h_i=0$).
+
+\section{Stochastic Dynamics and Temperature}
+To introduce thermal noise, we replace the deterministic sign update with a probabilistic (Glauber) rule at inverse temperature $\beta = 1/T$.  In order for $\beta$ to have a consistent effect as $N$ grows, we define the \emph{normalized} local field:
+\[
+\tilde{h}_i
+\;=\;
+\frac{1}{N}\sum_{j=1}^{N} W_{ij}\,S_j.
+\]
+Then the probability that neuron $i$ becomes $+1$ at the next step is
+\[
+P\bigl(S_i(t+1)=+1\bigr)
+\;=\;
+\frac{1}{1 + \exp\bigl[-\,2\,\beta\,\tilde{h}_i(t)\bigr]},
+\]
+and $P(S_i=-1)=1-P(S_i=+1)$.  Equivalently, one could keep 
+$h_i=\sum_j W_{ij}S_j$ and replace $\beta$ by $\beta/N$ inside the exponent; here we absorb $1/N$ into $\tilde{h}_i$ for clarity.
+
+\subsection{Interpretation of $\beta$}
+\begin{itemize}
+    \item \textbf{High $\beta$ (Low $T\to 0$):}  The logistic $\bigl[1+\exp(-2\beta\tilde{h}_i)\bigr]^{-1}$ becomes a steep step at $\tilde{h}_i=0$.  Thus each neuron almost always aligns with the sign of its local field, recovering the deterministic update.
+    \item \textbf{Low $\beta$ (High $T\to\infty$):}  The logistic approaches $1/2$.  Each neuron flips roughly at random (regardless of $\tilde{h}_i$), so the network explores states like a high‐temperature system.
+\end{itemize}
+This stochastic rule can be applied either synchronously (all neurons sample simultaneously) or asynchronously (one spin at a time).  Typically, one runs for a fixed number of sweeps and records samples or measures convergence statistics.
+
+\section{Pattern Overlap}
+To measure similarity between two patterns $\xi^p$ and $\xi^q$, define their \emph{overlap} (dot‐product correlation):
+\[
+m_{pq}
+\;=\;
+\frac{1}{N}\sum_{i=1}^{N} \xi_i^p \,\xi_i^q.
+\]
+Properties:
+\begin{itemize}
+    \item $m_{pp} = 1$ (each pattern is perfectly correlated with itself).
+    \item $m_{pq}\approx 0$ indicates near‐orthogonality (ideal when storing many patterns).
+    \item $m_{pq}$ close to $\pm 1$ means patterns are highly correlated or anti‐correlated, which can reduce storage capacity.
+\end{itemize}
+In the pseudo‐inverse rule, $M = [\,m_{pq}\,]$ must be invertible to guarantee exact retrieval.
+\\\\
+\textbf{Pattern centering:}  We assume each pattern $\xi^p$ has zero mean (i.e.\ $\sum_i \xi_i^p \approx 0$).  If not, consider subtracting the empirical mean before computing $m_{pq}$.  
+\section{Phase Diagrams}
+Phase diagrams illustrate regimes of retrieval, spin‐glass behavior, or paramagnetic behavior as functions of control parameters such as temperature $T$, loading ratio $\alpha = P/N$, and connectivity $p$.  In a fully connected Hopfield network, one typically plots $m$ (the steady‐state overlap with a stored pattern) versus $T$ for various $\alpha$.  In the sparse (Erdős–Rényi) case, we also add connectivity $p$ as a parameter.
+
+\subsection{Erdős–Rényi Degree vs.\ Overlap}
+When the network topology is drawn from $G(N,p)$, each neuron has (on average) degree $k \approx p(N-1)$.  One can study how retrieval quality changes as a function of $k/N = p$.  In practice:
+\begin{itemize}
+    \item Fix $N$ and $P$, choose several $p\in(0,1]$.
+    \item For each $p$, generate a random instance of $G(N,p)$, prune the weight matrix, then run at various $T$.
+    \item Measure the steady‐state overlap $m_\infty(p,T)$ with a given pattern.
+\end{itemize}
+Plotting $m_\infty$ versus $p$ for fixed $T$ (or versus $T$ for fixed $p$) reveals how sparse connectivity degrades or sustains memory performance.  Amit et al.\ (Phys.\ Rev.\ Lett.\ 55, 325–328 (1985)) studied similar phase boundaries in the fully connected limit; extending to $G(N,p)$ shifts transition lines as $p$ decreases.
+
+\subsection{Dynamic Cavity Method}
+The dynamic cavity method approximates asynchronous (or synchronous) updates by tracking probability distributions of single‐site marginals on a locally tree‐like graph.  It is valid when the underlying graph has no short loops (e.g.\ directed Erdős–Rényi with small clustering).  The main steps are:
+\begin{enumerate}
+    \item Represent each neuron $i$'s state at time $t$ by a marginal probability $P_i^t(+1)$.
+    \item Write cavity‐messages $m_{i\to j}^t(h)$ from $i$ to $j$ as distributions over local fields, assuming $j$ is removed.
+    \item Update messages according to a belief‐propagation‐like equation that incorporates $\beta$ and the pruned weights.
+    \item Recover single‐site marginals $P_i^{t+1}(+1)$ from incoming messages.
+\end{enumerate}
+Because undirected loops spoil the approximation, the dynamic cavity is most accurate on directed or sparse networks with tree‐like neighborhoods.  One then predicts the time‐dependent overlap $m^t$ from marginals:
+\[
+m^t \;=\; \frac{1}{N} \sum_{i=1}^N \langle S_i^t \rangle_{\mathrm{cavity}}\,\xi_i^p,
+\]
+where $\langle S_i^t \rangle_{\mathrm{cavity}} = P_i^t(+1) - P_i^t(-1)$.
+
+\section{Stationary State}
+After sufficiently many updates (or sweeps), the network reaches a stationary distribution over $\{ -1, +1\}^N$ (for stochastic dynamics) or a fixed‐point configuration (for deterministic, $T=0$).  In the stationary limit:
+\begin{itemize}
+    \item \textbf{Deterministic ($T\to 0$):}  The network converges to a local minimum of $E(S)$.  Overlap $m_\infty = \lim_{t\to\infty} m^t$ is measured by checking if the final state matches a stored pattern.
+    \item \textbf{Stochastic ($T>0$):}  The system samples from the Gibbs distribution 
+    \[
+      P_{\mathrm{eq}}(S) 
+      = \frac{1}{Z} \exp\bigl[-\beta\,E(S)\bigr],
+    \]
+    so the stationary overlap is 
+    \[
+      m_\infty \;=\; \frac{1}{N}\sum_{i}\sum_{S} S_i\,\xi_i^p\,P_{\mathrm{eq}}(S).
+    \]
+\end{itemize}
+One locates phase transitions by finding $(T,p)$ where $m_\infty$ jumps from near‐zero (paramagnetic) to $\mathcal{O}(1)$ (retrieval).
+
+\section{Time Evolution of Pattern Overlap}
+To characterize dynamics, define at each time $t$ the \emph{pattern overlap}
+\[
+m^t
+\;=\;
+\frac{1}{N} \sum_{i=1}^{N} S_i^t \,\xi_i^p,
+\]
+where $\xi^p$ is the target pattern.  In simulation or cavity‐predictions, one produces curves of $m^t$ as a function of $t$, for various $(T,p)$:
+\begin{itemize}
+    \item \textbf{Low temperature, high connectivity:}  $m^t$ often rises quickly from random initialization ($m^0\approx 0$) to a plateau $m^t\approx 1$.
+    \item \textbf{High temperature or low $p$:}  $m^t$ may stay near zero or exhibit slow drift without converging.
+\end{itemize}
+Plotting $m^t$ versus $t$ for different $T$ at fixed $p$, or for different $p$ at fixed $T$, reveals how thermal noise and sparsity slow or prevent retrieval.  These curves allow one to estimate convergence times $\tau_{\mathrm{conv}}(T,p)$ defined by $m^{\tau_{\mathrm{conv}}} \ge 0.9$ or similar thresholds.
+
+\section{Expectation Values}
+Expectation values quantify average observables in the stochastic regime.  Important quantities include:
+\begin{itemize}
+    \item \textbf{Average overlap:} 
+    \[
+      \langle m \rangle 
+      = \sum_{S} \Bigl(\frac{1}{N}\sum_i S_i\,\xi_i^p\Bigr)\,P_{\mathrm{eq}}(S).
+    \]
+    In practice, estimated by time‐averaging $m^t$ after thermalization.
+    \item \textbf{Two‐point correlations:} 
+    \[
+      C_{ij} 
+      = \langle S_i\,S_j \rangle 
+      - \langle S_i \rangle \langle S_j \rangle,
+    \]
+    which indicate collective fluctuations and can be plugged into susceptibility calculations.
+    \item \textbf{Magnetization variance:} 
+    \[
+      \mathrm{Var}(m) 
+      = \langle m^2 \rangle - \langle m\rangle^2,
+    \]
+    often peaks at phase transitions.
+\end{itemize}
+Computing these expectation values via simulation (long run at fixed $(T,p)$) or via cavity‐predictions helps identify critical temperatures $T_c(p)$ and connectivity thresholds $p_c(T)$.
+
+\end{document}
