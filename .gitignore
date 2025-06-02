@@ -4,6 +4,10 @@ target/*
 # ignore everything in docs/
 docs/*
 
+# But do not ignore .tex files
+!docs/*.tex
+!docs/**/*.tex
+
 # but keep any .tex or .pdf in docs/
 !docs/*.tex
 # !docs/*.pdf
