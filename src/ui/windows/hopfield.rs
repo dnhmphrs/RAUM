@@ -664,7 +664,7 @@ impl Window for HopfieldWindow {
         
         // Beta Control
         ui.label("Update Rule Beta (Temperature Inverse):");
-        ui.add(egui::DragValue::new(&mut self.beta).speed(0.0).range(0.0..=10.0));
+        ui.add(egui::DragValue::new(&mut self.beta).speed(0.01).range(0.01..=10.0));
         
         ui.separator();
         
